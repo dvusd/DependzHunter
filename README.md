@@ -2,6 +2,7 @@
 Scan projects for composer and NPM dependencies.  Record the results into a database.
 
 ## Setup
+* Run `composer install`
 * Create db schema `dependz_hunter`
 * Create new user/password with full privileges to the database.
 * Update `config/db.php` as necessary.    
