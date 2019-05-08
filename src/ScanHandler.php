@@ -102,7 +102,7 @@ class ScanHandler
                 }
             }
             // build an assoc array with path > file > section > dependencies
-            $path = basename(dirname($filename));
+            $path = dirname($filename);
             $file = basename($filename);
             $results[$path] = array($file => []);
             $console->write("Found '$file' in '$path'\n");
