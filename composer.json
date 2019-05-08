@@ -1,0 +1,33 @@
+{
+  "name": "zombeerose/depends-hunter",
+  "description": "Zend Framework command line application for finding and cataloging project dependencies",
+  "version": "0.1",
+  "require": {
+    "php": ">=7.2",
+    "zfcampus/zf-console": "^1.0",
+    "zendframework/zend-filter": "^2.0",
+    "doctrine/migrations": "^2.0",
+    "zendframework/zend-db": "^2.10",
+    "zendframework/zend-config": "^3.2"
+  },
+  "authors": [
+    {
+      "name": "zombeerose",
+      "homepage": "https://github.com/zombeerose"
+    }
+  ],
+  "repositories": [
+    {
+      "type": "composer",
+      "url": "https://packagist.org/"
+    }
+  ],
+  "bin": [
+    "bin/cli.php"
+  ],
+  "autoload": {
+    "psr-4": {
+      "DependzHunter\\": "src/"
+    }
+  }
+}
