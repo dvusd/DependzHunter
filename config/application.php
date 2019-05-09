@@ -1,6 +1,6 @@
 <?php
 
-$version = '1.0.2';
+$version = '1.0.3';
 
 if (file_exists(__DIR__ . '/../composer.json')) {
 

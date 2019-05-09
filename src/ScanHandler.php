@@ -153,6 +153,7 @@ class ScanHandler
      */
     private function save(array $results)
     {
+        $unique = uniqid('', true);
         $dbConfig = include __DIR__ . '/../config/db.php';
         $adapter = new Adapter($dbConfig);
         $conn = $adapter->getDriver()->getConnection();
@@ -169,7 +170,8 @@ class ScanHandler
                                 'asset_type' => $file,
                                 'section' => $section,
                                 'dependency' => $depend,
-                                'version' => $version
+                                'version' => $version,
+                                'group_id' => $unique
                             ];
                             $affected = $assetTable->insert($data);
                             $total += $affected;
