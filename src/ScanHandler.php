@@ -14,10 +14,13 @@ use ZF\Console\Route;
  */
 class ScanHandler
 {
+    private $debug = false;
 
     private $packageTypes = [
-        ['name' => 'composer.json', 'json' => true, 'keys' => ['require','require-dev']],
-        ['name' => 'package.json', 'json' => true, 'keys' => ['dependencies','devDependencies']]
+        ['name' => 'composer.json', 'json' => true, 'keys' => ['require', 'require-dev']],
+        ['name' => 'composer.lock', 'json' => true, 'keys' => ['packages', 'packages-dev']],
+        ['name' => 'package.json', 'json' => true, 'keys' => ['dependencies', 'devDependencies']],
+        ['name' => 'package-lock.json', 'json' => true, 'keys' => ['dependencies', 'devDependencies']],
     ];
 
     /**
@@ -32,24 +35,25 @@ class ScanHandler
     {
         // should be boolean
         $debug = $route->getMatchedParam('debug', false);
-        $debug && $console->write("Output includes DEBUG info\n");
+        $this->debug = $debug;
+        $this->debug && $console->writeLine("Output includes DEBUG info");
 
         // dir should be a string
         $dir = $route->getMatchedParam('dir');
         if (!is_string($dir) || !is_dir($dir)) {
-            $console->write("Invalid directory.\n");
+            $console->writeLine("Invalid directory.");
             return 1;
         }
         $dir = realpath($dir);
-        $console->write("Root path: $dir\n");
+        $console->writeLine("Root path: $dir");
 
         // exclude should be a string
         $exclude = $route->getMatchedParam('exclude');
         if (!is_string($exclude)) {
-            $console->write("Invalid exclusion pattern");
+            $console->writeLine("Invalid exclusion pattern: {$exclude}");
             return 1;
         }
-        $debug && $console->write("Exclusion pattern: $exclude\n");
+        $this->debug && $console->writeLine("Exclusion pattern: $exclude");
 
         // max-depth should be a number
         $maxDepth = (int) $route->getMatchedParam('max-depth');
@@ -57,10 +61,9 @@ class ScanHandler
             $console->write("Invalid value for max-depth. Must be numeric");
             return 1;
         }
-        $debug && $console->write("Max depth: $maxDepth\n");
+        $this->debug && $console->writeLine("Max depth: $maxDepth");
 
         $options = [
-            'debug' => $debug,
             'exclude' => $exclude,
             'max-depth' => $maxDepth
         ];
@@ -73,17 +76,18 @@ class ScanHandler
             $results = array_merge_recursive($results, $temp);
         }
 
-        $console->write("Total folders with matches: " . count($results) . "\n");
-        if ($debug) {
-            $console->write("Results:\n");
-            $json = json_encode($results, JSON_PRETTY_PRINT);
-            $console->write($json);
-            $console->write("\n");
+        $console->writeLine("Total folders with matches: " . count($results));
+        $results = $this->transform($console, $results);
+        if ($this->debug) {
+            $console->writeLine("Results:");
+            $console->writeLine(json_encode($results, JSON_PRETTY_PRINT));
         }
+        $console->writeLine("Total dependencies found: " . count($results));
 
-        $console->write("Saving results to db\n");
-        $total = $this->save($results);
-        $console->write("Inserted $total records into db\n");
+        $dryRun = $route->getMatchedParam('dry-run', false);
+        if (!$dryRun) {
+            $this->save($console, $results);
+        }
 
         return 0;
     }
@@ -97,7 +101,7 @@ class ScanHandler
         foreach ($files as $filename) {
             if (is_string($exclude) && strlen($exclude) > 0) {
                 if (preg_match($exclude, $filename, $matches)){
-                    $options['debug'] && $console->write("Excluding '$filename' from results\n");
+                    $this->debug && $console->writeLine("Excluding '$filename' from results");
                     continue;
                 }
             }
@@ -110,7 +114,7 @@ class ScanHandler
             if ($packageType['json']) {
                 $decoded = json_decode(file_get_contents($filename), true);
                 if (!is_array($decoded)){
-                    $console->write("Unable to decode JSON in '$filename'\n");
+                    $console->writeLine("Unable to decode JSON in '$filename'");
                     continue;
                 }
                 // search for specific keys within the json structure - this is the payload
@@ -118,7 +122,7 @@ class ScanHandler
                 foreach ($sections as $section){
                     // just fyi - not a failure
                     if (!array_key_exists($section, $decoded)){
-                        $console->write("JSON key '$section' not available in '$filename'\n");
+                        $this->debug && $console->writeLine("JSON key '$section' not available in '$filename'");
                         continue;
                     }
                     if (!array_key_exists($section, $results[$path][$file])) {
@@ -127,7 +131,51 @@ class ScanHandler
                     $results[$path][$file][$section] = array_merge($results[$path][$file][$section], $decoded[$section]);
                 }
             } else {
-                $console->write("Only JSON file types are supported: {$packageType['name']} \n");
+                $console->writeLine("Only JSON file types are supported: {$packageType['name']}");
+            }
+        }
+        return $results;
+    }
+
+    private function transform(Console $console, array $items)
+    {
+        $results = [];
+        $unique = uniqid('', true);
+        foreach ($items as $path => $files) {
+            foreach ($files as $file => $sections) {
+                foreach ($sections as $section => $depends) {
+                    foreach ($depends as $depend => $entry) {
+                        if (is_array($entry)) {
+                            if (is_string($depend)) {
+                                $dependency = $depend;
+                            } else if (array_key_exists('name', $entry)) {
+                                $dependency = $entry['name'];
+                            } else {
+                                $console->writeLine("WARN: Dependency name not found: " . json_encode($entry));
+                                continue;
+                            }
+                            if (array_key_exists('version', $entry)) {
+                                $version = $entry['version'];
+                            } else {
+                                $console->writeLine("WARN: Dependency version not found: " . json_encode($entry));
+                                continue;
+                            }
+                        } else {
+                            $dependency = $depend;
+                            $version = $entry;
+                        }
+                        $data = [
+                            'path' => $path,
+                            'asset_type' => $file,
+                            'section' => $section,
+                            'dependency' => $dependency,
+                            'version' => $version,
+                            'group_id' => $unique
+                        ];
+//                        $this->debug && $console->writeLine(json_encode($data));
+                        $results[] = $data;
+                    }
+                }
             }
         }
         return $results;
@@ -148,38 +196,27 @@ class ScanHandler
     }
 
     /**
-     * @param array $results
+     * @param Console $console
+     * @param array $records
      * @return int
+     * @throws \Exception
      */
-    private function save(array $results)
+    private function save(Console $console, array $records)
     {
-        $unique = uniqid('', true);
         $dbConfig = include __DIR__ . '/../config/db.php';
         $adapter = new Adapter($dbConfig);
         $conn = $adapter->getDriver()->getConnection();
         $assetTable = new TableGateway('asset', $adapter);
         $total = 0;
+        $console->writeLine("Saving results to db...");
         try {
             $conn->beginTransaction();
-            foreach ($results as $path => $files) {
-                foreach ($files as $file => $sections) {
-                    foreach ($sections as $section => $depends) {
-                        foreach ($depends as $depend => $version) {
-                            $data = [
-                                'path' => $path,
-                                'asset_type' => $file,
-                                'section' => $section,
-                                'dependency' => $depend,
-                                'version' => $version,
-                                'group_id' => $unique
-                            ];
-                            $affected = $assetTable->insert($data);
-                            $total += $affected;
-                        }
-                    }
-                }
+            foreach ($records as $record) {
+                $affected = $assetTable->insert($record);
+                $total += $affected;
             }
             $conn->commit();
+            $console->writeLine("Inserted $total records into db");
         } catch (\Exception $e) {
             $conn->rollback();
             throw new \Exception($e);
