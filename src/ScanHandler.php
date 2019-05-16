@@ -2,6 +2,7 @@
 
 namespace DependzHunter;
 
+use MongoDB\Driver\ReadConcern;
 use Zend\Console\Adapter\AdapterInterface as Console;
 use Zend\Db\Adapter\Adapter;
 use Zend\Db\TableGateway\TableGateway;
@@ -37,6 +38,9 @@ class ScanHandler
         $debug = $route->getMatchedParam('debug', false);
         $this->debug = $debug;
         $this->debug && $console->writeLine("Output includes DEBUG info");
+
+        ini_set('memory_limit', '512M');
+        $this->debug && $console->writeLine("Current memory: " . ini_get('memory_limit'));
 
         // dir should be a string
         $dir = $route->getMatchedParam('dir');
@@ -208,12 +212,14 @@ class ScanHandler
         $conn = $adapter->getDriver()->getConnection();
         $assetTable = new TableGateway('asset', $adapter);
         $total = 0;
+        $possible = count($records);
         $console->writeLine("Saving results to db...");
         try {
             $conn->beginTransaction();
             foreach ($records as $record) {
                 $affected = $assetTable->insert($record);
                 $total += $affected;
+                $this->debug && $console->writeLine("Processing $total / $possible ($affected)");
             }
             $conn->commit();
             $console->writeLine("Inserted $total records into db");
