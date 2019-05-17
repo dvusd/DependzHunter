@@ -1,7 +1,7 @@
 {
   "name": "zombeerose/depends-hunter",
   "description": "Zend Framework command line application for finding and cataloging project dependencies",
-  "version": "1.1.1",
+  "version": "1.1.2",
   "require": {
     "php": ">=7.2",
     "zfcampus/zf-console": "^1.0",

@@ -2,10 +2,9 @@
 
 namespace DependzHunter;
 
-use MongoDB\Driver\ReadConcern;
 use Zend\Console\Adapter\AdapterInterface as Console;
 use Zend\Db\Adapter\Adapter;
-use Zend\Db\TableGateway\TableGateway;
+use Zend\Db\Adapter\ParameterContainer;
 use ZF\Console\Route;
 
 /**
@@ -39,8 +38,8 @@ class ScanHandler
         $this->debug = $debug;
         $this->debug && $console->writeLine("Output includes DEBUG info");
 
-        ini_set('memory_limit', '512M');
         $this->debug && $console->writeLine("Current memory: " . ini_get('memory_limit'));
+        $this->debug && $console->writeLine("Max execution limit: " . ini_get('max_execution_time'));
 
         // dir should be a string
         $dir = $route->getMatchedParam('dir');
@@ -82,10 +81,6 @@ class ScanHandler
 
         $console->writeLine("Total folders with matches: " . count($results));
         $results = $this->transform($console, $results);
-        if ($this->debug) {
-            $console->writeLine("Results:");
-            $console->writeLine(json_encode($results, JSON_PRETTY_PRINT));
-        }
         $console->writeLine("Total dependencies found: " . count($results));
 
         $dryRun = $route->getMatchedParam('dry-run', false);
@@ -144,6 +139,7 @@ class ScanHandler
     private function transform(Console $console, array $items)
     {
         $results = [];
+        $this->debug && $console->writeLine("Results:");
         $unique = uniqid('', true);
         foreach ($items as $path => $files) {
             foreach ($files as $file => $sections) {
@@ -168,15 +164,8 @@ class ScanHandler
                             $dependency = $depend;
                             $version = $entry;
                         }
-                        $data = [
-                            'path' => $path,
-                            'asset_type' => $file,
-                            'section' => $section,
-                            'dependency' => $dependency,
-                            'version' => $version,
-                            'group_id' => $unique
-                        ];
-//                        $this->debug && $console->writeLine(json_encode($data));
+                        $data = [$path, $file, $section, $dependency, $version, $unique];
+                        $this->debug && $console->writeLine(json_encode($data));
                         $results[] = $data;
                     }
                 }
@@ -207,22 +196,40 @@ class ScanHandler
      */
     private function save(Console $console, array $records)
     {
+        $possible = count($records);
+        $total = 0;
+        if ($possible === 0){
+            $console->writeLine("No records to save");
+            return $total;
+        }
+
         $dbConfig = include __DIR__ . '/../config/db.php';
         $adapter = new Adapter($dbConfig);
-        $conn = $adapter->getDriver()->getConnection();
-        $assetTable = new TableGateway('asset', $adapter);
-        $total = 0;
-        $possible = count($records);
+        $driver = $adapter->getDriver();
+        $conn = $driver->getConnection();
+        $columnNames = array('path','asset_type','section','dependency','version','group_id'); //array_keys($records[0]);
+        $this->debug && $console->writeLine("Column names: " . json_encode($columnNames));
+        // setup the placeholders - a fancy way to make the long "(?, ?, ?)..." string
+        $rowPlaces = '(' . implode(', ', array_fill(0, count($columnNames ), '?')) . ')';
+        $allPlaces = implode(', ', array_fill(0, $possible, $rowPlaces));
+        // this is a slick way to convert a multi-dim array [[..],[..],..]into a flat version [....]
+        $flatten = array();
+        array_walk_recursive($records, function($v) use (&$flatten){ $flatten[] = $v; });
+
         $console->writeLine("Saving results to db...");
         try {
             $conn->beginTransaction();
-            foreach ($records as $record) {
-                $affected = $assetTable->insert($record);
-                $total += $affected;
-                $this->debug && $console->writeLine("Processing $total / $possible ($affected)");
-            }
+            // use a prepared statement to insert all data at once, otherwise we risk running out of memory or execution time
+            $sql = "INSERT INTO `asset` (" . implode(',', $columnNames) . ") VALUES $allPlaces";
+            $statement = $driver->createStatement($sql);
+
+            $statement->setParameterContainer(new ParameterContainer($flatten));
+            $statement->prepare();
+
+            $result = $statement->execute();
+            $total = $result->getAffectedRows();
             $conn->commit();
-            $console->writeLine("Inserted $total records into db");
+            $console->writeLine("Inserted $total records into db ($possible possible)");
         } catch (\Exception $e) {
             $conn->rollback();
             throw new \Exception($e);
