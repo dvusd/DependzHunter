@@ -1,4 +1,4 @@
-# Depends Hunter
+# Dependz Hunter
 Scan projects for composer and NPM dependencies.  Record the results into a database.
 
 ## Setup
