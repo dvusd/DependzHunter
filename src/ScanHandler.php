@@ -86,6 +86,8 @@ class ScanHandler
         $dryRun = $route->getMatchedParam('dry-run', false);
         if (!$dryRun) {
             $this->save($console, $results);
+        } else {
+            $this->debug && $console->writeLine("Records to save: " . var_export($results, true));            
         }
 
         return 0;
@@ -113,7 +115,7 @@ class ScanHandler
             if ($packageType['json']) {
                 $decoded = json_decode(file_get_contents($filename), true);
                 if (!is_array($decoded)){
-                    $console->writeLine("Unable to decode JSON in '$filename'");
+                    $console->writeLine("WARN: Unable to decode JSON in '$filename'");
                     continue;
                 }
                 // search for specific keys within the json structure - this is the payload
@@ -139,7 +141,7 @@ class ScanHandler
     private function transform(Console $console, array $items)
     {
         $results = [];
-        $this->debug && $console->writeLine("Results:");
+        $this->debug && $console->writeLine("Transforming " . count($items) . " path(s)...");
         $unique = uniqid('', true);
         foreach ($items as $path => $files) {
             foreach ($files as $file => $sections) {
@@ -171,6 +173,7 @@ class ScanHandler
                 }
             }
         }
+        $this->debug && $console->writeLine("End of Transformation");
         return $results;
     }
 
