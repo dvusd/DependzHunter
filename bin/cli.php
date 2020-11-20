@@ -32,5 +32,6 @@ $application = new Application(
     $dispatcher
 );
 
+ini_set('memory_limit','512M');
 $exit = $application->run();
 exit($exit);
